@@ -87,9 +87,11 @@ class RuboCop::CLI::Command::ExecuteRunner < ::RuboCop::CLI::Command::Base
   private
 
   def display_error_summary(errors); end
+  def display_summary(runner); end
   def display_warning_summary(warnings); end
   def execute_runner(paths); end
   def maybe_print_corrected_source; end
+  def with_redirect; end
 end
 
 RuboCop::CLI::Command::ExecuteRunner::INTEGRATION_FORMATTERS = T.let(T.unsafe(nil), Array)
@@ -554,6 +556,7 @@ module RuboCop::Cop::AutocorrectLogic
   def max_line_length; end
   def range_by_lines(range); end
   def range_of_first_line(range); end
+  def surrounding_heredoc(offense_range); end
 end
 
 class RuboCop::Cop::Badge
@@ -2070,12 +2073,16 @@ class RuboCop::Cop::Layout::EmptyLineBetweenDefs < ::RuboCop::Cop::Base
   def autocorrect_remove_lines(corrector, newline_pos, count); end
   def blank_lines_between?(first_def_node, second_def_node); end
   def blank_lines_count_between(first_def_node, second_def_node); end
+  def candidate?(node); end
+  def class_candidate?(node); end
   def def_end(node); end
-  def def_node?(node); end
   def def_start(node); end
   def lines_between_defs(first_def_node, second_def_node); end
   def maximum_empty_lines; end
+  def message(node); end
+  def method_candidate?(node); end
   def minimum_empty_lines; end
+  def module_candidate?(node); end
   def multiple_blank_lines_groups?(first_def_node, second_def_node); end
 
   class << self
@@ -4418,8 +4425,6 @@ RuboCop::Cop::Lint::MissingSuper::CONSTRUCTOR_MSG = T.let(T.unsafe(nil), String)
 
 RuboCop::Cop::Lint::MissingSuper::METHOD_LIFECYCLE_CALLBACKS = T.let(T.unsafe(nil), Array)
 
-RuboCop::Cop::Lint::MissingSuper::OBJECT_LIFECYCLE_CALLBACKS = T.let(T.unsafe(nil), Array)
-
 RuboCop::Cop::Lint::MissingSuper::STATELESS_CLASSES = T.let(T.unsafe(nil), Array)
 
 class RuboCop::Cop::Lint::MixedRegexpCaptureTypes < ::RuboCop::Cop::Base
@@ -5177,7 +5182,7 @@ class RuboCop::Cop::Lint::UnmodifiedReduceAccumulator < ::RuboCop::Cop::Base
   def check_return_values(block_node); end
   def potential_offense?(return_values, block_body, element_name, accumulator_name); end
   def return_values(block_body_node); end
-  def returned_accumulator_index(return_values, accumulator_name); end
+  def returned_accumulator_index(return_values, accumulator_name, element_name); end
   def returns_accumulator_anywhere?(return_values, accumulator_name); end
 end
 
@@ -7500,6 +7505,7 @@ class RuboCop::Cop::Style::Documentation < ::RuboCop::Cop::Base
   def check(node, body, type); end
   def compact_namespace?(node); end
   def constant_declaration?(node); end
+  def macro_only?(body); end
   def namespace?(node); end
   def nodoc(node); end
   def nodoc?(comment, require_all: T.unsafe(nil)); end
@@ -7887,6 +7893,7 @@ class RuboCop::Cop::Style::FormatString < ::RuboCop::Cop::Base
   def autocorrect(corrector, node); end
   def autocorrect_from_percent(corrector, node); end
   def autocorrect_to_percent(corrector, node); end
+  def format_single_parameter(arg); end
   def message(detected_style); end
   def method_name(style_name); end
 end
@@ -9404,6 +9411,17 @@ end
 RuboCop::Cop::Style::RandomWithOffset::MSG = T.let(T.unsafe(nil), String)
 
 RuboCop::Cop::Style::RandomWithOffset::RESTRICT_ON_SEND = T.let(T.unsafe(nil), Array)
+
+class RuboCop::Cop::Style::RedundantArgument < ::RuboCop::Cop::Cop
+  def on_send(node); end
+
+  private
+
+  def redundant_arg_for_method(method_name); end
+  def redundant_argument?(node); end
+end
+
+RuboCop::Cop::Style::RedundantArgument::MSG = T.let(T.unsafe(nil), String)
 
 class RuboCop::Cop::Style::RedundantAssignment < ::RuboCop::Cop::Base
   extend(::RuboCop::Cop::AutoCorrector)
@@ -11539,6 +11557,8 @@ module RuboCop::Formatter::Colorizable
 end
 
 class RuboCop::Formatter::DisabledConfigFormatter < ::RuboCop::Formatter::BaseFormatter
+  include(::RuboCop::PathUtil)
+
   def initialize(output, options = T.unsafe(nil)); end
 
   def file_finished(file, offenses); end
@@ -11551,6 +11571,7 @@ class RuboCop::Formatter::DisabledConfigFormatter < ::RuboCop::Formatter::BaseFo
   def cop_config_params(default_cfg, cfg); end
   def default_config(cop_name); end
   def excludes(offending_files, cop_name, parent); end
+  def merge_mode_for_exclude?(cfg); end
   def output_cop(cop_name, offense_count); end
   def output_cop_comments(output_buffer, cfg, cop_name, offense_count); end
   def output_cop_config(output_buffer, cfg, cop_name); end
@@ -11750,9 +11771,9 @@ RuboCop::Formatter::PacmanFormatter::FALLBACK_TERMINAL_WIDTH = T.let(T.unsafe(ni
 
 RuboCop::Formatter::PacmanFormatter::GHOST = T.let(T.unsafe(nil), String)
 
-RuboCop::Formatter::PacmanFormatter::PACDOT = T.let(T.unsafe(nil), Rainbow::Presenter)
+RuboCop::Formatter::PacmanFormatter::PACDOT = T.let(T.unsafe(nil), Rainbow::NullPresenter)
 
-RuboCop::Formatter::PacmanFormatter::PACMAN = T.let(T.unsafe(nil), Rainbow::Presenter)
+RuboCop::Formatter::PacmanFormatter::PACMAN = T.let(T.unsafe(nil), Rainbow::NullPresenter)
 
 class RuboCop::Formatter::ProgressFormatter < ::RuboCop::Formatter::ClangStyleFormatter
   include(::RuboCop::Formatter::TextUtil)
@@ -12297,10 +12318,10 @@ end
 
 class String
   include(::Comparable)
-  include(::Colorize::InstanceMethods)
   include(::JSON::Ext::Generator::GeneratorMethods::String)
-  extend(::Colorize::ClassMethods)
+  include(::Colorize::InstanceMethods)
   extend(::JSON::Ext::Generator::GeneratorMethods::String::Extend)
+  extend(::Colorize::ClassMethods)
 
   def blank?; end
 end
