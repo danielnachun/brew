@@ -441,6 +441,15 @@ module Homebrew
         # Ignore matches to source code, which is not required at run time.
         # These matches may be caused by debugging symbols.
         ignores = [%r{/include/|\.(c|cc|cpp|h|hpp)$}]
+
+        # GCC installation can be moved so long as the whole directory tree is moved together:
+        # https://gcc-help.gcc.gnu.narkive.com/GnwuCA7l/moving-gcc-from-the-installation-path-is-it-allowed.
+        begin
+          ignores << %r{#{Regexp.escape(cellar)}/gcc} if Formula["gcc"].versioned_formulae.map(&:name).include?(name)
+        rescue FormulaUnavailableError
+          nil
+        end
+
         any_go_deps = f.deps.any? do |dep|
           dep.name =~ Version.formula_optionally_versioned_regex(:go)
         end
